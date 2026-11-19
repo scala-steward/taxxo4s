@@ -5,7 +5,7 @@ val repoUrl = uri("https://github.com/stivens/taxxo4s")
 
 ThisBuild / scalaVersion := "3.9.0"
 ThisBuild / organization := "io.github.stivens"
-ThisBuild / version := "0.0.1"
+ThisBuild / version := "0.1.0"
 ThisBuild / semanticdbEnabled := true
 ThisBuild / versionScheme := Some("early-semver")
 ThisBuild / publishTo := localStaging.value
@@ -29,6 +29,13 @@ val rawSpec = settingKey[File]("Vendored Taxxo OpenAPI spec, as downloaded")
 val fetchSpec = taskKey[Unit]("Download the latest Taxxo OpenAPI spec into spec/")
 val normalizeSpec = taskKey[File]("Rewrite the raw spec into a form tapir codegen accepts")
 val generateEnumConstants = taskKey[Seq[File]]("Generate named constants for the spec's integer enums")
+val generateRequests = taskKey[Seq[File]]("Generate named-parameter request builders for every endpoint")
+val generateRequestInputOrder = taskKey[Seq[File]]("Generate the input names the request builder order test checks")
+val publicPackage = "taxxo4s.generated"
+val rawPackage = s"$publicPackage.raw"
+val enumsPackage = s"$publicPackage.enums"
+val modelsObject = "TaxxoEndpoints"
+val models = s"$rawPackage.$modelsObject"
 
 lazy val core = project
   .enablePlugins(OpenapiCodegenPlugin)
@@ -40,31 +47,48 @@ lazy val core = project
     openapiSwaggerFile := target.value / "openapi" / "taxxo-v1.json",
     normalizeSpec := Def.uncached {
       val normalized = SpecNormalizer.normalize(SpecNormalizer.load(rawSpec.value.toPath))
-      normalized.droppedOperations.foreach(op =>
-        streams.value.log.warn(s"Skipping unsupported operation $op (object-typed query parameter)")
-      )
+      normalized.droppedOperations.foreach(op => streams.value.log.warn(s"Skipping unsupported operation $op"))
       IO.write(openapiSwaggerFile.value, normalized.spec.spaces2)
       openapiSwaggerFile.value
     },
     generateEnumConstants := Def.uncached {
       val spec = SpecNormalizer.load(normalizeSpec.value.toPath)
       val out = (Compile / sourceManaged).value / "taxxo-enums" / "TaxxoEnums.scala"
-      IO.write(out, EnumConstantsGenerator.render(spec, openapiPackage.value, openapiObject.value))
+      IO.write(out, EnumConstantsGenerator.render(spec, enumsPackage, models))
+      Seq(out)
+    },
+    generateRequests := Def.uncached {
+      val spec = SpecNormalizer.load(normalizeSpec.value.toPath)
+      val dir = (Compile / sourceManaged).value / "taxxo-requests"
+      IO.delete(dir)
+      RequestsGenerator.render(spec, publicPackage, rawPackage, models).toList.map { (name, source) =>
+        val out = dir / s"$name.scala"
+        IO.write(out, source)
+        out
+      }
+    },
+    generateRequestInputOrder := Def.uncached {
+      val spec = SpecNormalizer.load(normalizeSpec.value.toPath)
+      val out = (Test / sourceManaged).value / "taxxo-requests" / "RequestInputOrder.scala"
+      IO.write(out, RequestsGenerator.renderInputOrder(spec, publicPackage, rawPackage, models))
       Seq(out)
     },
     Compile / generateTapirDefinitions := (Compile / generateTapirDefinitions).dependsOn(normalizeSpec).value,
-    openapiPackage := "taxxo4s.generated",
-    openapiObject := "TaxxoEndpoints",
+    openapiPackage := rawPackage,
+    openapiObject := modelsObject,
     openapiJsonSerdeLib := "jsoniter",
     openapiUseHeadTagForObjectName := true,
     // Generated validators run while decoding responses, so server data breaking a spec length limit would fail the call.
     openapiDisableValidatorGeneration := true,
     Compile / sourceGenerators += generateEnumConstants.taskValue,
+    Compile / sourceGenerators += generateRequests.taskValue,
+    Test / sourceGenerators += generateRequestInputOrder.taskValue,
     fetchSpec := Def.uncached {
       IO.writeFileAtomically(rawSpec.value) { staging =>
         sbt.io.Using.urlInputStream(uri("https://platforma2.taxxo.pl/swagger/v1/swagger.json").toURL)(IO.transfer(_, staging))
-        // Throws on a download that doesn't parse or normalize, so it never replaces the vendored spec.
-        SpecNormalizer.normalize(SpecNormalizer.load(staging.toPath))
+        // Throws on a download that doesn't parse, normalize or yield enum constants, before it replaces the vendored spec.
+        val normalized = SpecNormalizer.normalize(SpecNormalizer.load(staging.toPath)).spec
+        EnumConstantsGenerator.render(normalized, enumsPackage, models)
       }
       streams.value.log.info(s"Saved ${rawSpec.value}")
     },
