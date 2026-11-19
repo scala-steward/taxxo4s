@@ -1,8 +1,30 @@
-# taxxo4s
+# taxxo4s [![Maven Central](https://maven-badges.sml.io/sonatype-central/io.github.stivens/taxxo4s_3/badge.svg?style=social)](https://maven-badges.sml.io/sonatype-central/io.github.stivens/taxxo4s_3)
 
 A Scala 3 client for the [Taxxo API](https://platforma2.taxxo.pl/api/documentation/index.html). All models and endpoints are generated at build time from the vendored OpenAPI spec using [tapir's OpenAPI codegen](https://tapir.softwaremill.com/en/latest/generator/sbt-openapi-codegen.html). The client is effect-agnostic: pass any sttp4 `Backend[F]` (sync, `Future`, cats-effect, ZIO).
 
 taxxo4s is an unofficial client, not affiliated with or endorsed by Taxxo or Columb Technologies S.A.
+
+## Installation
+
+Requires Scala 3.9 or newer, on the JVM.
+
+`build.sbt`:
+
+```scala
+libraryDependencies += "io.github.stivens" %% "taxxo4s" % "0.0.1"
+```
+
+`scala-cli`:
+
+```scala
+//> using dep "io.github.stivens::taxxo4s:0.0.1"
+```
+
+`scala-cli REPL`:
+
+```bash
+scala-cli repl --dep io.github.stivens::taxxo4s:0.0.1
+```
 
 ## Usage
 
